@@ -9,15 +9,21 @@ export function StatusBadge({ status, className = '' }) {
   let dot = 'bg-slate-400';
   let label = status.charAt(0).toUpperCase() + status.slice(1);
 
-  if (s === 'published' || s === 'active' || s === 'confirmed' || s === 'attended') {
+  if (s === 'published' || s === 'approved' || s === 'active' || s === 'confirmed' || s === 'attended') {
     styles = 'bg-emerald-50 text-emerald-700 border-emerald-200';
     dot = 'bg-emerald-500';
+    if (s === 'approved') label = 'Approved';
+    if (s === 'published') label = 'Published';
   } else if (s === 'draft' || s === 'pending') {
     styles = 'bg-amber-50 text-amber-700 border-amber-200';
     dot = 'bg-amber-500';
+    if (s === 'pending') label = 'Pending Approval';
+    if (s === 'draft') label = 'Draft';
   } else if (s === 'cancelled' || s === 'inactive' || s === 'absent' || s === 'rejected') {
     styles = 'bg-rose-50 text-rose-700 border-rose-200';
     dot = 'bg-rose-500';
+    if (s === 'rejected') label = 'Rejected';
+    if (s === 'cancelled') label = 'Cancelled';
   } else if (s === 'completed') {
     styles = 'bg-blue-50 text-blue-700 border-blue-200';
     dot = 'bg-blue-500';

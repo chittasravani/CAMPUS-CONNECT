@@ -79,7 +79,7 @@ export function Navbar() {
   const handleLogout = async () => {
     await logout();
     showToast('Signed out successfully', 'info');
-    navigate('/');
+    navigate('/login');
   };
 
   const navLinkClass = ({ isActive }) =>

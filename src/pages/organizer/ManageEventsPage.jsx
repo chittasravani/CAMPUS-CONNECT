@@ -37,9 +37,10 @@ export function ManageEventsPage() {
   const [actionLoading, setActionLoading] = useState(false);
 
   const loadEvents = async () => {
-    if (!currentUser?.id) return;
+    const orgId = currentUser?.id || currentUser?._id;
+    if (!orgId) return;
     try {
-      const list = await eventService.getEventsByOrganizer(currentUser.id);
+      const list = await eventService.getEventsByOrganizer(orgId);
       setEvents(list);
     } catch (err) {
       showToast(err.message || 'Error loading events', 'error');
@@ -50,7 +51,7 @@ export function ManageEventsPage() {
 
   useEffect(() => {
     loadEvents();
-  }, [currentUser?.id]);
+  }, [currentUser?.id, currentUser?._id]);
 
   const handlePublish = async (id, title) => {
     try {
@@ -94,7 +95,11 @@ export function ManageEventsPage() {
 
   // Filter events
   const filteredEvents = events.filter((e) => {
-    if (filter !== 'all' && e.status !== filter) return false;
+    if (filter === 'pending' && !(e.status === 'pending' || e.status === 'draft')) return false;
+    if (filter === 'published' && !(e.status === 'published' || e.status === 'approved')) return false;
+    if (filter === 'draft' && !(e.status === 'draft' || e.status === 'pending')) return false;
+    if (filter === 'cancelled' && !(e.status === 'cancelled' || e.status === 'rejected')) return false;
+    if (filter !== 'all' && filter !== 'pending' && filter !== 'published' && filter !== 'draft' && filter !== 'cancelled' && e.status !== filter) return false;
     if (search.trim()) {
       const q = search.toLowerCase().trim();
       return (
@@ -154,6 +159,16 @@ export function ManageEventsPage() {
             All ({events.length})
           </button>
           <button
+            onClick={() => setFilter('pending')}
+            className={`px-3 py-1.5 rounded-lg transition-colors ${
+              filter === 'pending'
+                ? 'bg-brand-50 text-brand-700 font-bold'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Pending ({events.filter((e) => e.status === 'pending' || e.status === 'draft').length})
+          </button>
+          <button
             onClick={() => setFilter('published')}
             className={`px-3 py-1.5 rounded-lg transition-colors ${
               filter === 'published'
@@ -161,17 +176,7 @@ export function ManageEventsPage() {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Published ({events.filter((e) => e.status === 'published').length})
-          </button>
-          <button
-            onClick={() => setFilter('draft')}
-            className={`px-3 py-1.5 rounded-lg transition-colors ${
-              filter === 'draft'
-                ? 'bg-brand-50 text-brand-700 font-bold'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Drafts ({events.filter((e) => e.status === 'draft').length})
+            Approved ({events.filter((e) => e.status === 'published' || e.status === 'approved').length})
           </button>
           <button
             onClick={() => setFilter('cancelled')}
@@ -181,7 +186,7 @@ export function ManageEventsPage() {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Cancelled ({events.filter((e) => e.status === 'cancelled').length})
+            Rejected ({events.filter((e) => e.status === 'cancelled' || e.status === 'rejected').length})
           </button>
         </div>
       </div>
@@ -307,12 +312,12 @@ export function ManageEventsPage() {
                             </button>
                           )}
 
-                          {/* Cancel Published Event */}
-                          {evt.status === 'published' && (
+                          {/* Cancel Published or Pending Event */}
+                          {(evt.status === 'published' || evt.status === 'approved' || evt.status === 'pending') && (
                             <button
                               onClick={() => setCancelTarget(evt)}
                               className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                              title="Cancel Event"
+                              title="Cancel / Withdraw Event"
                             >
                               <XCircle className="w-4 h-4" />
                             </button>

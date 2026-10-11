@@ -37,7 +37,7 @@ export function AdminEventSubmissionsPage() {
 
   const loadEvents = async () => {
     try {
-      const list = await eventService.getAllEvents();
+      const list = await eventService.getAllAdminEvents();
       setEvents(list);
     } catch (err) {
       showToast(err.message, 'error');
@@ -83,12 +83,16 @@ export function AdminEventSubmissionsPage() {
   };
 
   const filteredEvents = events.filter((e) => {
-    if (filter !== 'all' && e.status !== filter) return false;
+    if (filter === 'pending' && !(e.status === 'pending' || e.status === 'draft')) return false;
+    if (filter === 'approved' && !(e.status === 'approved' || e.status === 'published')) return false;
+    if (filter === 'rejected' && !(e.status === 'rejected' || e.status === 'cancelled')) return false;
+    if (filter !== 'all' && filter !== 'pending' && filter !== 'approved' && filter !== 'rejected' && e.status !== filter) return false;
     if (search.trim()) {
       const q = search.toLowerCase().trim();
+      const orgName = e.organizerName || e.organizerId?.name || e.organizerId?.organizationName || '';
       return (
         e.title.toLowerCase().includes(q) ||
-        e.organizerName.toLowerCase().includes(q) ||
+        orgName.toLowerCase().includes(q) ||
         e.category.toLowerCase().includes(q) ||
         e.venue.toLowerCase().includes(q)
       );
@@ -121,17 +125,22 @@ export function AdminEventSubmissionsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
-          {['all', 'draft', 'published', 'completed', 'cancelled'].map((st) => (
+          {[
+            { id: 'all', label: `All (${events.length})` },
+            { id: 'pending', label: `Pending Review (${events.filter((e) => e.status === 'pending' || e.status === 'draft').length})` },
+            { id: 'approved', label: `Approved (${events.filter((e) => e.status === 'approved' || e.status === 'published').length})` },
+            { id: 'rejected', label: `Rejected (${events.filter((e) => e.status === 'rejected' || e.status === 'cancelled').length})` },
+          ].map((tab) => (
             <button
-              key={st}
-              onClick={() => setFilter(st)}
+              key={tab.id}
+              onClick={() => setFilter(tab.id)}
               className={`px-3 py-1.5 rounded-lg capitalize transition-colors ${
-                filter === st
+                filter === tab.id
                   ? 'bg-brand-50 text-brand-700 font-bold'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              {st === 'draft' ? 'Pending Review (Drafts)' : st}
+              {tab.label}
             </button>
           ))}
         </div>
@@ -220,7 +229,7 @@ export function AdminEventSubmissionsPage() {
                           <Eye className="w-4 h-4" />
                         </button>
 
-                        {evt.status === 'draft' && (
+                        {(evt.status === 'pending' || evt.status === 'draft') && (
                           <button
                             onClick={() => setApproveTarget(evt)}
                             className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold hover:bg-emerald-100 transition-colors"
@@ -229,7 +238,7 @@ export function AdminEventSubmissionsPage() {
                           </button>
                         )}
 
-                        {evt.status === 'published' && (
+                        {(evt.status === 'pending' || evt.status === 'draft' || evt.status === 'published' || evt.status === 'approved') && (
                           <button
                             onClick={() => setRejectTarget(evt)}
                             className="px-2.5 py-1 rounded-lg text-rose-600 hover:bg-rose-50 font-semibold transition-colors"

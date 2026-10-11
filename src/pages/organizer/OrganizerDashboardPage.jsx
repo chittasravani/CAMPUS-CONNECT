@@ -25,21 +25,22 @@ export function OrganizerDashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!currentUser?.id) return;
+    const orgId = currentUser?.id || currentUser?._id;
+    if (!orgId) return;
 
     Promise.all([
-      eventService.getEventsByOrganizer(currentUser.id),
+      eventService.getEventsByOrganizer(orgId),
       registrationService.getAllRegistrations(),
     ])
       .then(([orgEvents, allRegs]) => {
         setEvents(orgEvents);
         // Find registrations for events belonging to this organizer
-        const eventIds = new Set(orgEvents.map((e) => e.id));
+        const eventIds = new Set(orgEvents.map((e) => e.id || e._id));
         const orgRegs = allRegs.filter((r) => eventIds.has(r.eventId));
         setRegistrations(orgRegs);
       })
       .finally(() => setLoading(false));
-  }, [currentUser?.id]);
+  }, [currentUser?.id, currentUser?._id]);
 
   if (loading) {
     return <LoadingSpinner message="Loading organizer dashboard..." className="py-16" />;
@@ -47,7 +48,8 @@ export function OrganizerDashboardPage() {
 
   // Calculate metrics
   const totalEvents = events.length;
-  const publishedEvents = events.filter((e) => e.status === 'published').length;
+  const publishedEvents = events.filter((e) => e.status === 'published' || e.status === 'approved').length;
+  const pendingEvents = events.filter((e) => e.status === 'pending' || e.status === 'draft').length;
   const totalRegistrations = registrations.filter((r) => r.status === 'confirmed').length;
   const attendedCount = registrations.filter((r) => r.attendanceStatus === 'attended').length;
   const attendanceRate =

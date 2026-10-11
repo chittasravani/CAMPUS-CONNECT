@@ -1,83 +1,106 @@
 /**
  * CampusConnect Auth Service
- * Ready for backend API integration (JWT / Session).
+ * Connected to Express + MongoDB backend (/api/auth)
  */
 
+import { apiRequest, setAuthToken, setStoredUser, getStoredUser } from './apiClient.js';
 import { getFromStorage, saveToStorage, STORAGE_KEYS } from './storage.js';
-import { generateId } from '../utils/helpers.js';
 
 export const authService = {
   /**
-   * Get currently active demo user
+   * Get currently active authenticated user
    */
   async getCurrentUser() {
+    const user = getStoredUser();
+    if (user) {
+      return {
+        ...user,
+        id: user.id || user._id,
+      };
+    }
     return getFromStorage(STORAGE_KEYS.CURRENT_USER, null);
   },
 
   /**
-   * Mock login
+   * Login with email and password via backend API
    */
   async login({ email, password }) {
-    await new Promise((res) => setTimeout(res, 200)); // Simulate async latency
-    const users = getFromStorage(STORAGE_KEYS.USERS, []);
-    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    const res = await apiRequest('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
 
-    if (!user) {
-      throw new Error('No account found with this email address.');
+    const token = res.token;
+    const rawUser = res.data?.user;
+
+    if (!token || !rawUser) {
+      throw new Error('Invalid response received from authentication server');
     }
 
-    if (user.status === 'inactive') {
-      throw new Error('This account has been deactivated by administrator.');
-    }
+    setAuthToken(token);
 
+    const user = {
+      ...rawUser,
+      id: rawUser.id || rawUser._id,
+      role: rawUser.role, // strictly role from backend
+      avatar: `https://images.unsplash.com/photo-1534528741775?auto=format&fit=crop&w=256&q=80`,
+      department: rawUser.department || 'Computer Science & Engineering',
+      year: rawUser.year || '1st Year',
+    };
+
+    setStoredUser(user);
     saveToStorage(STORAGE_KEYS.CURRENT_USER, user);
     return user;
   },
 
   /**
-   * Mock registration (student signup)
+   * Register a new student account via backend API
    */
   async register(data) {
-    await new Promise((res) => setTimeout(res, 300));
-    const users = getFromStorage(STORAGE_KEYS.USERS, []);
+    // 1. Call backend signup endpoint
+    await apiRequest('/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: data.name,
+        email: data.email,
+        password: data.password,
+      }),
+    });
 
-    // Check email uniqueness
-    const exists = users.some((u) => u.email.toLowerCase() === data.email.toLowerCase());
-    if (exists) {
-      throw new Error('An account with this college email already exists.');
+    // 2. Automatically log in to get signed JWT token
+    const user = await this.login({
+      email: data.email,
+      password: data.password,
+    });
+
+    // Augment with student metadata if provided
+    if (data.studentId || data.department || data.year) {
+      const augmentedUser = {
+        ...user,
+        studentId: data.studentId || user.studentId,
+        department: data.department || user.department,
+        year: data.year || user.year,
+      };
+      setStoredUser(augmentedUser);
+      saveToStorage(STORAGE_KEYS.CURRENT_USER, augmentedUser);
+      return augmentedUser;
     }
 
-    const newUser = {
-      id: generateId('user_student'),
-      name: data.name,
-      email: data.email,
-      role: 'student',
-      studentId: data.studentId || `STU-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-      department: data.department || 'General Engineering',
-      year: data.year || '1st Year',
-      phone: data.phone || '',
-      avatar: `https://images.unsplash.com/photo-${1534528741775 + Math.floor(Math.random() * 1000)}?auto=format&fit=crop&w=256&q=80`,
-      status: 'active',
-      bio: data.bio || 'New CampusConnect student member.',
-      createdAt: new Date().toISOString(),
-    };
-
-    users.push(newUser);
-    saveToStorage(STORAGE_KEYS.USERS, users);
-    saveToStorage(STORAGE_KEYS.CURRENT_USER, newUser);
-    return newUser;
+    return user;
   },
 
   /**
-   * Mock logout
+   * Logout user and clear tokens
    */
   async logout() {
+    setAuthToken(null);
+    setStoredUser(null);
     saveToStorage(STORAGE_KEYS.CURRENT_USER, null);
     return true;
   },
 
   /**
-   * Switch role easily in demo mode
+   * Switch role in frontend demo state
    */
   async switchRole(role) {
     const users = getFromStorage(STORAGE_KEYS.USERS, []);
@@ -85,17 +108,19 @@ export const authService = {
     if (!targetUser) {
       targetUser = users[0];
     }
+    setStoredUser(targetUser);
     saveToStorage(STORAGE_KEYS.CURRENT_USER, targetUser);
     return targetUser;
   },
 
   /**
-   * Switch to a specific demo user ID
+   * Switch user in frontend demo state
    */
   async switchUser(userId) {
     const users = getFromStorage(STORAGE_KEYS.USERS, []);
     const targetUser = users.find((u) => u.id === userId);
     if (targetUser) {
+      setStoredUser(targetUser);
       saveToStorage(STORAGE_KEYS.CURRENT_USER, targetUser);
       return targetUser;
     }
@@ -106,39 +131,18 @@ export const authService = {
    * Update profile info
    */
   async updateProfile(userId, profileData) {
-    const users = getFromStorage(STORAGE_KEYS.USERS, []);
-    const index = users.findIndex((u) => u.id === userId);
-
-    if (index === -1) {
-      throw new Error('User not found');
-    }
-
-    const updatedUser = { ...users[index], ...profileData };
-    users[index] = updatedUser;
-    saveToStorage(STORAGE_KEYS.USERS, users);
-
-    // If current logged-in user, update current user too
-    const current = getFromStorage(STORAGE_KEYS.CURRENT_USER);
-    if (current && current.id === userId) {
-      saveToStorage(STORAGE_KEYS.CURRENT_USER, updatedUser);
-    }
-
+    const current = getStoredUser() || getFromStorage(STORAGE_KEYS.CURRENT_USER);
+    const updatedUser = { ...current, ...profileData, id: userId };
+    setStoredUser(updatedUser);
+    saveToStorage(STORAGE_KEYS.CURRENT_USER, updatedUser);
     return updatedUser;
   },
 
   /**
-   * Mock Forgot Password
+   * Forgot Password
    */
   async forgotPassword(email) {
     await new Promise((res) => setTimeout(res, 250));
-    const users = getFromStorage(STORAGE_KEYS.USERS, []);
-    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-
-    if (!user) {
-      throw new Error('No user registered with this email.');
-    }
-
-    // In a real backend, an email with a secure token would be dispatched
     return {
       success: true,
       message: `Password reset simulation: In a real system, a reset link would be sent to ${email}.`,
@@ -147,12 +151,12 @@ export const authService = {
   },
 
   /**
-   * Mock Reset Password
+   * Reset Password
    */
   async resetPassword(token, newPassword) {
     await new Promise((res) => setTimeout(res, 250));
-    if (!newPassword || newPassword.length < 6) {
-      throw new Error('Password must be at least 6 characters long.');
+    if (!newPassword || newPassword.length < 8) {
+      throw new Error('Password must be at least 8 characters long.');
     }
     return {
       success: true,

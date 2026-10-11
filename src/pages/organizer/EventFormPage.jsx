@@ -42,7 +42,7 @@ export function EventFormPage() {
     capacity: 100,
     eligibility: 'Open to all registered undergraduate and graduate students',
     contactEmail: currentUser?.email || 'events@campus.edu',
-    status: 'published', // 'published' or 'draft'
+    status: 'pending', // 'pending', 'published', or 'draft'
   });
 
   const [errors, setErrors] = useState({});
@@ -215,8 +215,9 @@ export function EventFormPage() {
                   onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600"
                 >
-                  <option value="published">Published (Visible in Event Feed)</option>
-                  <option value="draft">Draft (Hidden from public catalog)</option>
+                  <option value="pending">Submit for Admin Approval (Pending)</option>
+                  <option value="published">Published / Approved</option>
+                  <option value="draft">Draft (Private)</option>
                 </select>
               </div>
             </div>

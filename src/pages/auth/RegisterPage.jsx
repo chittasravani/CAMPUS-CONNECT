@@ -35,8 +35,8 @@ export function RegisterPage() {
     if (!formData.studentId.trim()) errs.studentId = 'Student ID / Roll number is required';
     if (!formData.password) {
       errs.password = 'Password is required';
-    } else if (formData.password.length < 6) {
-      errs.password = 'Password must be at least 6 characters long';
+    } else if (formData.password.length < 8) {
+      errs.password = 'Password must be at least 8 characters long';
     }
     if (formData.password !== formData.confirmPassword) {
       errs.confirmPassword = 'Passwords do not match';

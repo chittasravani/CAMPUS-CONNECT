@@ -1,46 +1,168 @@
 /**
  * CampusConnect Registration Service
- * Handles event registrations, duplicate checks, ticket generation, waitlist, and cancellations.
+ * Connected to Express + MongoDB backend (/api/registrations)
  */
 
+import { apiRequest } from './apiClient.js';
 import { getFromStorage, saveToStorage, STORAGE_KEYS } from './storage.js';
-import { generateId, generateTicketCode } from '../utils/helpers.js';
+import { generateTicketCode } from '../utils/helpers.js';
+
+const normalizeRegistration = (r) => {
+  if (!r) return null;
+  const evt = r.eventId && typeof r.eventId === 'object' ? r.eventId : null;
+
+  const eventObj = evt
+    ? {
+        ...evt,
+        id: evt._id || evt.id,
+        _id: evt._id || evt.id,
+        startDate: evt.date || evt.startDate,
+        endDate: evt.date || evt.endDate,
+        date: evt.date || evt.startDate,
+        time: evt.time || '10:00 AM',
+        posterUrl:
+          evt.posterUrl ||
+          'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=800&q=80',
+        capacity: evt.capacity || 50,
+        registeredCount: evt.registeredCount || 0,
+      }
+    : {
+        id: typeof r.eventId === 'string' ? r.eventId : 'unknown',
+        title: 'Campus Event',
+        category: 'General',
+        venue: 'Campus Venue',
+        startDate: new Date().toISOString(),
+        posterUrl:
+          'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=800&q=80',
+      };
+
+  const regId = r._id || r.id;
+  const ticketCode =
+    r.ticketCode || `CC-TKT-${String(regId).slice(-6).toUpperCase()}`;
+
+  return {
+    ...r,
+    id: regId,
+    _id: regId,
+    eventId: evt ? (evt._id || evt.id) : r.eventId,
+    status: r.status === 'registered' ? 'confirmed' : r.status,
+    rawStatus: r.status,
+    registrationDate: r.registrationDate || r.createdAt || new Date().toISOString(),
+    ticketCode,
+    event: eventObj,
+  };
+};
 
 export const registrationService = {
   /**
-   * Get all registrations
+   * Get registrations for a specific student from backend
+   */
+  async getRegistrationsByStudent(studentId) {
+    try {
+      const res = await apiRequest('/registrations/my');
+      if (res?.data?.registrations) {
+        return res.data.registrations.map(normalizeRegistration);
+      }
+    } catch (err) {
+      console.warn('Backend registrations fetch fallback to storage:', err.message);
+    }
+
+    // Fallback to storage for demo mock registrations
+    const registrations = getFromStorage(STORAGE_KEYS.REGISTRATIONS, []);
+    const events = getFromStorage(STORAGE_KEYS.EVENTS, []);
+
+    return registrations
+      .filter((r) => r.studentId === studentId)
+      .map((r) => {
+        const event = events.find((e) => e.id === r.eventId || e._id === r.eventId);
+        return {
+          ...r,
+          event: event || {
+            title: 'Campus Event',
+            category: 'General',
+            venue: 'Main Campus',
+            startDate: new Date().toISOString(),
+          },
+        };
+      })
+      .map(normalizeRegistration)
+      .sort((a, b) => new Date(b.registrationDate) - new Date(a.registrationDate));
+  },
+
+  /**
+   * Check if student is registered for event
+   */
+  async isStudentRegistered(eventId, studentId) {
+    const registrations = await this.getRegistrationsByStudent(studentId);
+    return registrations.some(
+      (r) =>
+        (r.eventId === eventId || r.event?.id === eventId || r.event?._id === eventId) &&
+        (r.status === 'confirmed' || r.status === 'registered')
+    );
+  },
+
+  /**
+   * Register a student for an event via backend API
+   */
+  async registerForEvent(eventId, studentUser) {
+    if (!studentUser) {
+      throw new Error('You must be logged in as a student to register.');
+    }
+
+    try {
+      const res = await apiRequest('/registrations', {
+        method: 'POST',
+        body: JSON.stringify({ eventId }),
+      });
+
+      if (res?.data?.registration) {
+        const normalized = normalizeRegistration(res.data.registration);
+
+        // Also add a local notification for the student
+        const notifs = getFromStorage(STORAGE_KEYS.NOTIFICATIONS, []);
+        notifs.unshift({
+          id: `notif_${Date.now()}`,
+          userId: studentUser.id || studentUser._id,
+          title: 'Registration Confirmed 🎟️',
+          message: `You are registered for event. Ticket: ${normalized.ticketCode}.`,
+          type: 'success',
+          isRead: false,
+          createdAt: new Date().toISOString(),
+        });
+        saveToStorage(STORAGE_KEYS.NOTIFICATIONS, notifs);
+
+        return normalized;
+      }
+    } catch (err) {
+      throw err;
+    }
+
+    throw new Error('Failed to register for event');
+  },
+
+  /**
+   * Cancel an existing registration via backend API
+   */
+  async cancelRegistration(registrationId, studentId) {
+    try {
+      const res = await apiRequest(`/registrations/${registrationId}`, {
+        method: 'DELETE',
+      });
+      return true;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  /**
+   * Get all registrations (organizers / admin)
    */
   async getAllRegistrations() {
     return getFromStorage(STORAGE_KEYS.REGISTRATIONS, []);
   },
 
   /**
-   * Get registrations for a specific student
-   */
-  async getRegistrationsByStudent(studentId) {
-    const registrations = getFromStorage(STORAGE_KEYS.REGISTRATIONS, []);
-    const events = getFromStorage(STORAGE_KEYS.EVENTS, []);
-
-    // Join with event details
-    return registrations
-      .filter((r) => r.studentId === studentId)
-      .map((r) => {
-        const event = events.find((e) => e.id === r.eventId);
-        return {
-          ...r,
-          event: event || {
-            title: 'Unknown Event',
-            category: 'General',
-            venue: 'TBA',
-            startDate: new Date().toISOString(),
-          },
-        };
-      })
-      .sort((a, b) => new Date(b.registrationDate) - new Date(a.registrationDate));
-  },
-
-  /**
-   * Get registrations for a specific event (for organizers & admin)
+   * Get registrations for a specific event
    */
   async getRegistrationsByEvent(eventId) {
     const registrations = getFromStorage(STORAGE_KEYS.REGISTRATIONS, []);
@@ -48,189 +170,47 @@ export const registrationService = {
   },
 
   /**
-   * Check if student is registered for event
-   */
-  async isStudentRegistered(eventId, studentId) {
-    const registrations = getFromStorage(STORAGE_KEYS.REGISTRATIONS, []);
-    return registrations.some(
-      (r) => r.eventId === eventId && r.studentId === studentId && r.status === 'confirmed'
-    );
-  },
-
-  /**
-   * Register a student for an event
-   */
-  async registerForEvent(eventId, studentUser) {
-    await new Promise((res) => setTimeout(res, 250));
-
-    if (!studentUser) {
-      throw new Error('You must be logged in as a student to register.');
-    }
-
-    const events = getFromStorage(STORAGE_KEYS.EVENTS, []);
-    const eventIndex = events.findIndex((e) => e.id === eventId);
-
-    if (eventIndex === -1) {
-      throw new Error('Event not found.');
-    }
-
-    const event = events[eventIndex];
-
-    // Business Rules Verification
-    if (event.status !== 'published') {
-      throw new Error(`Cannot register for an event that is ${event.status}.`);
-    }
-
-    // Check registration deadline
-    if (event.registrationDeadline && new Date(event.registrationDeadline) < new Date()) {
-      throw new Error('Registration for this event has already closed.');
-    }
-
-    // Prevent duplicate registrations
-    const registrations = getFromStorage(STORAGE_KEYS.REGISTRATIONS, []);
-    const existing = registrations.find(
-      (r) => r.eventId === eventId && r.studentId === studentUser.id && r.status === 'confirmed'
-    );
-
-    if (existing) {
-      throw new Error('You have already registered for this event. Check your digital ticket wallet.');
-    }
-
-    // Capacity verification
-    if (event.registeredCount >= event.capacity) {
-      throw new Error('This event is completely full. You can join the waitlist instead.');
-    }
-
-    // Generate verified ticket
-    const ticketCode = generateTicketCode();
-    const newRegistration = {
-      id: generateId('reg'),
-      eventId: event.id,
-      studentId: studentUser.id,
-      studentName: studentUser.name,
-      studentEmail: studentUser.email,
-      collegeStudentId: studentUser.studentId || 'STU-DEMO',
-      department: studentUser.department || 'Undergraduate',
-      registrationDate: new Date().toISOString(),
-      status: 'confirmed',
-      attendanceStatus: 'registered', // registered | attended | absent
-      ticketCode,
-      attendedAt: null,
-    };
-
-    registrations.push(newRegistration);
-    saveToStorage(STORAGE_KEYS.REGISTRATIONS, registrations);
-
-    // Increment event registered count
-    events[eventIndex].registeredCount = (events[eventIndex].registeredCount || 0) + 1;
-    saveToStorage(STORAGE_KEYS.EVENTS, events);
-
-    // Create automatic confirmation notification for student
-    const notifs = getFromStorage(STORAGE_KEYS.NOTIFICATIONS, []);
-    notifs.unshift({
-      id: generateId('notif'),
-      userId: studentUser.id,
-      title: 'Registration Confirmed 🎟️',
-      message: `You are confirmed for "${event.title}". Ticket: ${ticketCode}.`,
-      type: 'success',
-      isRead: false,
-      createdAt: new Date().toISOString(),
-    });
-    saveToStorage(STORAGE_KEYS.NOTIFICATIONS, notifs);
-
-    return newRegistration;
-  },
-
-  /**
-   * Cancel an existing registration
-   */
-  async cancelRegistration(registrationId, studentId) {
-    await new Promise((res) => setTimeout(res, 200));
-
-    const registrations = getFromStorage(STORAGE_KEYS.REGISTRATIONS, []);
-    const regIndex = registrations.findIndex((r) => r.id === registrationId);
-
-    if (regIndex === -1) {
-      throw new Error('Registration record not found.');
-    }
-
-    const reg = registrations[regIndex];
-    if (reg.studentId !== studentId) {
-      throw new Error('Unauthorized to cancel this registration.');
-    }
-
-    if (reg.status === 'cancelled') {
-      throw new Error('Registration is already cancelled.');
-    }
-
-    // Update status to cancelled
-    registrations[regIndex].status = 'cancelled';
-    saveToStorage(STORAGE_KEYS.REGISTRATIONS, registrations);
-
-    // Decrement event registered count
-    const events = getFromStorage(STORAGE_KEYS.EVENTS, []);
-    const eventIndex = events.findIndex((e) => e.id === reg.eventId);
-    if (eventIndex !== -1 && events[eventIndex].registeredCount > 0) {
-      events[eventIndex].registeredCount -= 1;
-      saveToStorage(STORAGE_KEYS.EVENTS, events);
-    }
-
-    return registrations[regIndex];
-  },
-
-  /**
-   * Join Waitlist for full events
-   */
-  async joinWaitlist(eventId, studentUser) {
-    await new Promise((res) => setTimeout(res, 200));
-
-    if (!studentUser) {
-      throw new Error('You must be logged in to join the waitlist.');
-    }
-
-    const waitlist = getFromStorage(STORAGE_KEYS.WAITLIST, []);
-    const existing = waitlist.find(
-      (w) => w.eventId === eventId && w.studentId === studentUser.id && w.status === 'waiting'
-    );
-
-    if (existing) {
-      throw new Error(`You are already on the waitlist at position #${existing.position}.`);
-    }
-
-    const currentWaitlistForEvent = waitlist.filter((w) => w.eventId === eventId && w.status === 'waiting');
-    const newEntry = {
-      id: generateId('wt'),
-      eventId,
-      studentId: studentUser.id,
-      studentName: studentUser.name,
-      position: currentWaitlistForEvent.length + 1,
-      status: 'waiting',
-      createdAt: new Date().toISOString(),
-    };
-
-    waitlist.push(newEntry);
-    saveToStorage(STORAGE_KEYS.WAITLIST, waitlist);
-    return newEntry;
-  },
-
-  /**
-   * Get student waitlist entry for an event
-   */
-  async getStudentWaitlistStatus(eventId, studentId) {
-    const waitlist = getFromStorage(STORAGE_KEYS.WAITLIST, []);
-    return waitlist.find(
-      (w) => w.eventId === eventId && w.studentId === studentId && w.status === 'waiting'
-    ) || null;
-  },
-
-  /**
-   * Find ticket by code
+   * Get single registration by ticket code
    */
   async getRegistrationByTicketCode(ticketCode) {
     const registrations = getFromStorage(STORAGE_KEYS.REGISTRATIONS, []);
-    return registrations.find(
-      (r) => r.ticketCode?.toUpperCase() === ticketCode?.trim().toUpperCase()
-    ) || null;
+    return registrations.find((r) => r.ticketCode === ticketCode) || null;
+  },
+
+  /**
+   * Verify and mark attendance by ticket code
+   */
+  async verifyAndMarkAttendance(ticketCode, eventId) {
+    const registrations = getFromStorage(STORAGE_KEYS.REGISTRATIONS, []);
+    const index = registrations.findIndex((r) => r.ticketCode === ticketCode);
+
+    if (index === -1) {
+      return { success: false, message: 'Invalid ticket code. Pass not found.' };
+    }
+
+    const reg = registrations[index];
+    if (eventId && reg.eventId !== eventId) {
+      return { success: false, message: 'This pass belongs to a different event.' };
+    }
+
+    if (reg.attendanceStatus === 'attended') {
+      return {
+        success: false,
+        message: 'This pass has already been used and verified.',
+        registration: reg,
+      };
+    }
+
+    reg.attendanceStatus = 'attended';
+    reg.attendedAt = new Date().toISOString();
+    registrations[index] = reg;
+    saveToStorage(STORAGE_KEYS.REGISTRATIONS, registrations);
+
+    return {
+      success: true,
+      message: 'Attendance verified successfully!',
+      registration: reg,
+    };
   },
 };
 

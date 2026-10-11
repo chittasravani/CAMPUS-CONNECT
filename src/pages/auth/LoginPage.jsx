@@ -22,10 +22,10 @@ export function LoginPage() {
   const fillCredentials = (email, roleName) => {
     setFormData({
       email,
-      password: 'password123',
+      password: roleName === 'Admin' ? 'Admin@Campus2026!' : 'password123',
     });
     setErrors({});
-    showToast(`Filled demo credentials for ${roleName}`, 'info', 1500);
+    showToast(`Filled credentials for ${roleName}`, 'info', 1500);
   };
 
   const validate = () => {
