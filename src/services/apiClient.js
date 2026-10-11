@@ -36,7 +36,16 @@ export const setStoredUser = (user) => {
  * Centralized HTTP request client with Bearer token authentication & error handling
  */
 export async function apiRequest(endpoint, options = {}) {
-  const url = `${API_CONFIG.BASE_URL}${endpoint}`;
+  // Normalize endpoint format
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  // Avoid accidental double '/api' if caller passes '/api/...'
+  const normalizedEndpoint =
+    API_CONFIG.BASE_URL.endsWith('/api') && cleanEndpoint.startsWith('/api/')
+      ? cleanEndpoint.slice(4)
+      : cleanEndpoint;
+
+  const url = `${API_CONFIG.BASE_URL}${normalizedEndpoint}`;
   const token = getAuthToken();
 
   const headers = {
@@ -74,7 +83,7 @@ export async function apiRequest(endpoint, options = {}) {
     return data;
   } catch (err) {
     if (err.name === 'TypeError' && err.message.toLowerCase().includes('fetch')) {
-      throw new Error('Unable to connect to backend server. Please verify the server is running on port 5000.');
+      throw new Error('Unable to connect to backend server. Please verify the backend is running and accessible.');
     }
     throw err;
   }

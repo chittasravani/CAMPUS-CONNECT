@@ -13,10 +13,43 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Configure CORS for local Vite frontend
+// Configure CORS to securely allow requests from local dev and deployed frontend domains
+const defaultAllowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:4173',
+];
+
+const envAllowedOrigins = process.env.CLIENT_URL
+  ? process.env.CLIENT_URL.split(',').map((url) => url.trim().replace(/\/+$/, '')).filter(Boolean)
+  : [];
+
+const allowedOrigins = Array.from(new Set([...defaultAllowedOrigins, ...envAllowedOrigins]));
+
 const corsOptions = {
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    // Allow non-browser requests (mobile apps, curl, server-to-server health checks)
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    const normalizedOrigin = origin.replace(/\/+$/, '');
+    const isAllowed = allowedOrigins.some((allowed) => {
+      if (allowed.startsWith('*.')) {
+        return normalizedOrigin.endsWith(allowed.slice(2));
+      }
+      return allowed === normalizedOrigin;
+    });
+
+    if (isAllowed) {
+      return callback(null, true);
+    }
+
+    return callback(null, false);
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 };
 
 app.use(cors(corsOptions));

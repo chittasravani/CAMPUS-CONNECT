@@ -5,8 +5,25 @@
  * Reads VITE_API_BASE_URL with fallback to 'http://localhost:5000/api'.
  */
 
+const getResolvedBaseUrl = () => {
+  const envUrl =
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) ||
+    (typeof process !== 'undefined' && process.env?.VITE_API_BASE_URL);
+
+  const rawUrl =
+    envUrl && typeof envUrl === 'string' && envUrl.trim()
+      ? envUrl.trim()
+      : 'http://localhost:5000/api';
+
+  // Strip trailing slashes
+  const cleanUrl = rawUrl.replace(/\/+$/, '');
+
+  // Ensure base URL ends with /api to match backend mount points
+  return cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
+};
+
 export const API_CONFIG = {
-  BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api',
+  BASE_URL: getResolvedBaseUrl(),
   TIMEOUT_MS: 10000,
   ENDPOINTS: {
     AUTH: {
